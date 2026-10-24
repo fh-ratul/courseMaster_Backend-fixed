@@ -2,6 +2,9 @@
 
 const Course = require("../models/Course");
 
+// escape user input so it is matched literally inside a RegExp
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const getCourses = async (query) => {
   const {
     page = 1,
@@ -18,21 +21,23 @@ const getCourses = async (query) => {
 
   const filter = {};
 
-  if (search && typeof search === "string") {
+  if (search && typeof search === "string" && search.trim()) {
+    const pattern = escapeRegex(search.trim());
     filter.$or = [
-      { title: { $regex: search, $options: "i" } },
-      { instructorName: { $regex: search, $options: "i" } },
+      { title: { $regex: pattern, $options: "i" } },
+      { instructorName: { $regex: pattern, $options: "i" } },
     ];
   }
 
-  if (category && typeof category === "string") {
-    filter.category = category;
+  if (category && typeof category === "string" && category.trim()) {
+    // case-insensitive partial match, e.g. "web" -> "Web Development"
+    filter.category = { $regex: escapeRegex(category.trim()), $options: "i" };
   }
 
   if (tags && typeof tags === "string") {
     const tagArray = tags.split(",").map(t => t.trim()).filter(t => t); // "mern,react"
     if (tagArray.length > 0) {
-      filter.tags = { $in: tagArray };
+      filter.tags = { $in: tagArray.map((t) => new RegExp(`^${escapeRegex(t)}$`, "i")) };
     }
   }
 
