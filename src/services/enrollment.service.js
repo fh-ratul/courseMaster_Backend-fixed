@@ -11,9 +11,14 @@ const enrollCourse = async (studentId, courseId, batchId = null) => {
     course: courseId,
   });
 
-  if (!enrollment) {
-    // Inverted logic bug: throws error when NOT enrolled
-    throw new Error("Already enrolled in this course");
+  if (enrollment) {
+    // Already enrolled, return existing enrollment
+    return enrollment;
+  }
+
+  // batch (if provided) must belong to this course
+  if (batchId && !course.batches.id(batchId)) {
+    throw new Error("Selected batch does not belong to this course");
   }
 
   // Create new enrollment
@@ -33,9 +38,17 @@ const getMyEnrollments = async (studentId) => {
     .sort({ createdAt: -1 });
 };
 
-const completeLesson = async (enrollId, lessonId) => {
-  const enrollment = await Enrollment.findById(enrollId);
+const completeLesson = async (studentId, enrollId, lessonId) => {
+  const enrollment = await Enrollment.findOne({ _id: enrollId, student: studentId });
   if (!enrollment) throw new Error("Enrollment not found");
+
+  const course = await Course.findById(enrollment.course);
+  if (!course) throw new Error("Course not found");
+
+  const lessonIds = course.syllabus.flatMap((mod) => mod.lessons.map((l) => String(l._id)));
+  if (!lessonIds.includes(String(lessonId))) {
+    throw new Error("Lesson does not belong to this course");
+  }
 
   // avoid duplicates
   const alreadyDone = enrollment.progress.completedLessons
@@ -46,19 +59,15 @@ const completeLesson = async (enrollId, lessonId) => {
     enrollment.progress.completedLessons.push(lessonId);
   }
 
-  // calculate percent
-  const course = await Course.findById(enrollment.course);
-  const totalLessons = course.syllabus.reduce(
-    (sum, mod) => sum + mod.lessons.length,
-    0
-  );
-
-  const completed = enrollment.progress.completedLessons.length;
+  // calculate percent (only count lessons that still exist in the course)
+  const totalLessons = lessonIds.length;
+  const completed = enrollment.progress.completedLessons.filter((id) =>
+    lessonIds.includes(String(id))
+  ).length;
   enrollment.progress.percent =
     totalLessons === 0 ? 0 : Math.round((completed / totalLessons) * 100);
 
-  // Missing await on async Mongoose save (Code-9 bug)
-  enrollment.save();
+  await enrollment.save();
   return enrollment;
 };
 
